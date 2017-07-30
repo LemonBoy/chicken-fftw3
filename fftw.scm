@@ -1,6 +1,8 @@
 (module fftw
   (fft! rfft! ifft! irfft!
-   fft* rfft* ifft* irfft*)
+   fft* rfft* ifft* irfft*
+   dct! dst!
+   dct* dst*)
   (import scheme chicken foreign)
 
 (use srfi-4)
@@ -21,6 +23,9 @@
 (define-foreign-variable fftw-patient    int "FFTW_PATIENT")
 (define-foreign-variable fftw-exhaustive int "FFTW_EXHAUSTIVE")
 
+(define-foreign-variable fftw-dctI  int "FFTW_REDFT00")
+(define-foreign-variable fftw-dstI  int "FFTW_RODFT00")
+
 (define c-fftw-execute
   (foreign-lambda void fftw_execute plan))
 (define c-fftw-destroy-plan
@@ -39,6 +44,52 @@
 ; complex->real
 (define c-fftw-plan-c2r
   (foreign-lambda plan fftw_plan_dft_c2r int s32vector cvector f64vector int))
+
+; real->real
+(define c-fftw-plan-r2r
+  (foreign-lambda plan fftw_plan_r2r int s32vector f64vector f64vector scheme-pointer int))
+
+(define (kind->enum base x)
+  (case x
+    ((I)   base)
+    ((II)  (fx+ base 1))
+    ((III) (fx+ base 2))
+    ((IV)  (fx+ base 3))
+    (else
+      (error "invalid" x))))
+
+(define-syntax wrap-real!-transform
+  (er-macro-transformer
+    (lambda (x r c)
+      (let* ((name     (cadr (strip-syntax x)))
+             (cosine?  (caddr x))
+             (execute? (cadddr x)))
+        `(define ,(if execute? (symbol-append name '!) name)
+           (lambda (kind dim in out #!optional flags)
+             (let* ((rank       (length dim))
+                    (total-dim  (foldl fx* 1 dim))
+                    (base       ,(if cosine? 'fftw-dctI 'fftw-dstI))
+                    (kind       (kind->enum base kind)))
+               (unless (fx> total-dim 1)
+                 (error "dim"))
+               (unless (fx>= (f64vector-length out) total-dim)
+                 (error "out-size"))
+               (unless (fx>= (f64vector-length in) total-dim)
+                 (error "in-size"))
+               (let ((plan
+                       (c-fftw-plan-r2r rank (list->s32vector dim) in out
+                                        (s32vector->blob/shared (make-s32vector rank kind))
+                                        (or flags fftw-estimate))))
+                 ,(if execute?
+                      `(begin
+                         (c-fftw-execute plan)
+                         (c-fftw-destroy-plan plan))
+                      `(set-finalizer! plan c-fftw-destroy-plan))))))))))
+
+(wrap-real!-transform dct  #t #t)
+(wrap-real!-transform dst  #f #t)
+(wrap-real!-transform dct* #t #f)
+(wrap-real!-transform dst* #f #f)
 
 (define-syntax wrap-complex-trasform
   (er-macro-transformer
