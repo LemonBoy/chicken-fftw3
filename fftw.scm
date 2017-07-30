@@ -1,6 +1,6 @@
 (module fftw
-  (rfft rfft* irfft irfft*
-   cfft cfft* icfft icfft*)
+  (fft! rfft! ifft! irfft!
+   fft* rfft* ifft* irfft*)
   (import scheme chicken foreign)
 
 (use srfi-4)
@@ -46,7 +46,7 @@
       (let* ((name     (cadr (strip-syntax x)))
              (forward? (caddr x))
              (execute? (cadddr x)))
-        `(define ,name
+        `(define ,(if execute? (symbol-append name '!) name)
            (lambda (dim in out #!optional flags)
              (let* ((rank       (length dim))
                     (total-dim  (foldl fx* 1 dim))
@@ -67,10 +67,10 @@
                          (c-fftw-destroy-plan plan))
                       `(set-finalizer! plan c-fftw-destroy-plan))))))))))
 
-(wrap-complex-trasform cfft   #t #t)
-(wrap-complex-trasform icfft  #f #t)
-(wrap-complex-trasform cfft*  #t #f)
-(wrap-complex-trasform icfft* #f #f)
+(wrap-complex-trasform fft   #t #t)
+(wrap-complex-trasform ifft  #f #t)
+(wrap-complex-trasform fft*  #t #f)
+(wrap-complex-trasform ifft* #f #f)
 
 (define-syntax wrap-real-trasform
   (er-macro-transformer
@@ -80,7 +80,7 @@
              (execute? (cadddr x))
              (re-vec   (if forward? 'in 'out))
              (im-vec   (if forward? 'out 'in)))
-        `(define ,name
+        `(define ,(if execute? (symbol-append name '!) name)
            (lambda (dim in out #!optional flags)
              (let* ((rank      (length dim))
                     (total-dim (foldl fx* 1 dim))
