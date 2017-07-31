@@ -1,0 +1,10 @@
+(unless (find-header "fftw3.h")
+  (error "Could not find the fftw3 library"))
+
+(compile -s -j fftw -O3 -d0 "fftw.scm")
+(compile -s "fftw.import.scm")
+
+(install-extension
+ 'fftw
+ '("fftw.so" "fftw.import.so")
+ '((version "0.1")))

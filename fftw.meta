@@ -1,0 +1,6 @@
+((synopsis        "Bindings to fftw3")
+ (files           "fftw.scm" "fftw.meta" "fftw.setup")
+ (author          "LemonBoy")
+ (license         "GPL-3")
+ (category        math)
+ (foreign-depends "FFTW3"))
