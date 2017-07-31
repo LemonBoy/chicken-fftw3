@@ -1,10 +1,12 @@
 (foreign-declare "#include <fftw3.h>")
 
-(define-foreign-variable c-fftw-estimate int       "FFTW_ESTIMATE")
-(define-foreign-variable c-fftw-measure int        "FFTW_MEASURE")
-(define-foreign-variable c-fftw-patient int        "FFTW_PATIENT")
-(define-foreign-variable c-fftw-exhaustive int     "FFTW_EXHAUSTIVE")
+(define-foreign-variable c-fftw-estimate int "FFTW_ESTIMATE")
+(define-foreign-variable c-fftw-measure int "FFTW_MEASURE")
+(define-foreign-variable c-fftw-patient int "FFTW_PATIENT")
+(define-foreign-variable c-fftw-exhaustive int "FFTW_EXHAUSTIVE")
 (define-foreign-variable c-fftw-preserve-input int "FFTW_PRESERVE_INPUT")
+(define-foreign-variable c-fftw-unaligned int "FFTW_UNALIGNED")
+(define-foreign-variable c-fftw-conserve-memory int "FFTW_CONSERVE_MEMORY")
 
 (define-foreign-variable fftw-dctI int "FFTW_REDFT00")
 (define-foreign-variable fftw-dstI int "FFTW_RODFT00")
@@ -13,12 +15,13 @@
 
 (functor
   (fftw-impl
-    (V (c-fftw-execute c-fftw-destroy-plan c-fftw-cleanup
+    (I (c-fftw-execute c-fftw-destroy-plan c-fftw-cleanup
         c-fftw-plan-c2c c-fftw-plan-r2c c-fftw-plan-c2r c-fftw-plan-r2r)))
   (fft! rfft! ifft! irfft! dct! dst!
    plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
    execute-plan)
-  (import chicken scheme foreign V)
+
+  (import chicken scheme foreign I)
   (use srfi-4)
 
   (define (kind->enum base x)
@@ -41,16 +44,16 @@
              (define ,(symbol-append 'plan- name)
                (lambda (kind in out #!optional dim flags)
                  (let* ((flags      (or flags c-fftw-estimate))
-                        (dim        (or dim (list (fvec-len in))))
+                        (dim        (or dim (list (fvector-length in))))
                         (rank       (length dim))
                         (total-dim  (foldl fx* 1 dim))
                         (base       ,(if even? 'fftw-dctI 'fftw-dstI))
                         (kind       (kind->enum base kind)))
                    (unless (fx> total-dim 1)
                      (error "invalid transform size" dim))
-                   (unless (fx>= (fvec-len out) total-dim)
+                   (unless (fx>= (fvector-length out) total-dim)
                      (error "output vector length is too short"))
-                   (unless (fx>= (fvec-len in) total-dim)
+                   (unless (fx>= (fvector-length in) total-dim)
                      (error "input vector length is too short"))
                    (set-finalizer!
                      (c-fftw-plan-r2r rank (list->s32vector dim) in out
@@ -74,17 +77,16 @@
              (define ,(symbol-append 'plan- name)
                (lambda (in out #!optional dim flags)
                  (let* ((flags      (or flags c-fftw-estimate))
-                        (dim        (or dim (list (fvec-len in))))
+                        (dim        (or dim (list (fvector-length in))))
                         (rank       (length dim))
                         (total-dim  (foldl fx* 1 dim))
                         (min-length (fx* 2 total-dim)))
                    (unless (fx> total-dim 1)
                      (error "invalid transform size" dim))
-                   (unless (fx>= (fvec-len out) min-length)
+                   (unless (fx>= (fvector-length out) min-length)
                      (error "output vector length is too short"))
-                   (unless (fx>= (fvec-len in) min-length)
+                   (unless (fx>= (fvector-length in) min-length)
                      (error "input vector length is too short"))
-                   (print min-length)
                    (set-finalizer!
                      (c-fftw-plan-c2c rank (list->s32vector dim) in out
                                       ,(if forward? -1 +1) flags)
@@ -108,11 +110,11 @@
              (define ,(symbol-append 'plan- name)
                (lambda (in out #!optional dim flags)
                  (let* ((flags      (or flags c-fftw-estimate))
-                        (dim        (or dim (list (fvec-len in))))
+                        (dim        (or dim (list (fvector-length in))))
                         (rank       (length dim))
                         (total-dim  (foldl fx* 1 dim))
-                        (re-length  (fvec-len ,re-vec))
-                        (cpl-length (fvec-len ,cpl-vec)))
+                        (re-length  (fvector-length ,re-vec))
+                        (cpl-length (fvector-length ,cpl-vec)))
                    (unless (fx> total-dim 1)
                      (error "invalid transform size" dim))
                    ; The Hermitian symmetry allows us to spare some space by
@@ -140,14 +142,10 @@
   (import scheme chicken foreign)
   (use srfi-4)
 
-  (define fvec-len f32vector-length)
+  (define fvector-length f32vector-length)
 
   (define-foreign-type c32vector (nonnull-scheme-pointer "fftwf_complex")
-    (lambda (x)
-      (let* ((blob (f32vector->blob/shared x))
-             (elem (fx/ (##sys#size blob) 4)))
-        (when (odd? elem) (error "invalid f32vector size - must be even"))
-        blob)))
+    f32vector->blob/shared)
 
   (define c-fftw-execute
     (foreign-lambda void fftwf_execute plan))
@@ -169,14 +167,10 @@
   (import scheme chicken foreign)
   (use srfi-4)
 
-  (define fvec-len f64vector-length)
+  (define fvector-length f64vector-length)
 
   (define-foreign-type c64vector (nonnull-scheme-pointer "fftw_complex")
-    (lambda (x)
-      (let* ((blob (f64vector->blob/shared x))
-             (elem (fx/ (##sys#size blob) 8)))
-        (when (odd? elem) (error "invalid f64vector size - must be even"))
-        blob)))
+    f64vector->blob/shared)
 
   (define c-fftw-execute
     (foreign-lambda void fftw_execute plan))
