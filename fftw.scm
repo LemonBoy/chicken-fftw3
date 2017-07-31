@@ -15,7 +15,7 @@
   (lambda (x)
     (let* ((blob (f64vector->blob/shared x))
            (elem (fx/ (##sys#size blob) 8)))
-      (when (odd? elem) (error "odd!" elem))
+      (when (odd? elem) (error "invalid f64vector size - must be even"))
       blob)))
 
 (define-foreign-variable c-fftw-estimate int       "FFTW_ESTIMATE")
@@ -66,7 +66,7 @@
     ((III) (fx+ base 2))
     ((IV)  (fx+ base 3))
     (else
-      (error "invalid" x))))
+      (error "invalid transform kind - must be I II III or IV" x))))
 
 (define-syntax wrap-real-eo-transform
   (er-macro-transformer
@@ -83,11 +83,11 @@
                       (base       ,(if even? 'fftw-dctI 'fftw-dstI))
                       (kind       (kind->enum base kind)))
                  (unless (fx> total-dim 1)
-                   (error "dim"))
+                   (error "invalid transform size" dim))
                  (unless (fx>= (f64vector-length out) total-dim)
-                   (error "out-size"))
+                   (error "output vector length is too short"))
                  (unless (fx>= (f64vector-length in) total-dim)
-                   (error "in-size"))
+                   (error "input vector length is too short"))
                  (set-finalizer!
                    (c-fftw-plan-r2r rank (list->s32vector dim) in out
                                     #$(make-s32vector rank kind)
@@ -115,11 +115,11 @@
                       (total-dim  (foldl fx* 1 dim))
                       (min-length (fx* 2 total-dim)))
                  (unless (fx> total-dim 1)
-                   (error "dim"))
+                   (error "invalid transform size" dim))
                  (unless (fx>= (f64vector-length out) min-length)
-                   (error "out-size"))
+                   (error "output vector length is too short"))
                  (unless (fx>= (f64vector-length in) min-length)
-                   (error "in-size"))
+                   (error "input vector length is too short"))
                  (set-finalizer!
                    (c-fftw-plan-c2c rank (list->s32vector dim) in out
                                     ,(if forward? -1 +1) flags)
@@ -138,26 +138,26 @@
       (let* ((name     (cadr (strip-syntax x)))
              (forward? (caddr x))
              (re-vec   (if forward? 'in 'out))
-             (im-vec   (if forward? 'out 'in)))
+             (cpl-vec  (if forward? 'out 'in)))
         `(begin
            (define ,(symbol-append 'plan- name)
              (lambda (in out #!optional dim flags)
-               (let* ((flags     (or flags c-fftw-estimate))
-                      (dim       (or dim (list (f64vector-length in))))
-                      (rank      (length dim))
-                      (total-dim (foldl fx* 1 dim))
-                      (re-length (f64vector-length ,re-vec))
-                      (im-length (f64vector-length ,im-vec)))
+               (let* ((flags      (or flags c-fftw-estimate))
+                      (dim        (or dim (list (f64vector-length in))))
+                      (rank       (length dim))
+                      (total-dim  (foldl fx* 1 dim))
+                      (re-length  (f64vector-length ,re-vec))
+                      (cpl-length (f64vector-length ,cpl-vec)))
                  (unless (fx> total-dim 1)
-                   (error "dim"))
+                   (error "invalid transform size" dim))
                  ; The Hermitian symmetry allows us to spare some space by
                  ; only storing half of the spectrum
                  ; (N/2 + 1) * 2 = N + 2
-                 (unless (fx>= im-length (fx+ 2 total-dim))
-                   (error "out-size" im-length (fx+ 2 total-dim)))
+                 (unless (fx>= cpl-length (fx+ 2 total-dim))
+                   (error "complex vector length is too short"))
                  ; The dimension refers to the size of the real vector
                  (unless (fx>= re-length total-dim)
-                   (error "in-size"))
+                   (error "real vector length is too short"))
                  (set-finalizer!
                    (,(if forward? 'c-fftw-plan-r2c 'c-fftw-plan-c2r)
                      rank (list->s32vector dim) in out flags)
