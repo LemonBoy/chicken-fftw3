@@ -1,8 +1,8 @@
 (module fftw
-  (fft! rfft! ifft! irfft!
-   fft* rfft* ifft* irfft*
-   dct! dst!
-   dct* dst*)
+  (fft! rfft! ifft! irfft! dct! dst!
+   plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
+   execute-plan
+   fftw-estimate fftw-measure fftw-patient fftw-exhaustive fftw-preserve-input)
   (import scheme chicken foreign)
 
 (use srfi-4)
@@ -18,10 +18,11 @@
       (when (odd? elem) (error "odd!" elem))
       blob)))
 
-(define-foreign-variable fftw-estimate   int "FFTW_ESTIMATE")
-(define-foreign-variable fftw-measure    int "FFTW_MEASURE")
-(define-foreign-variable fftw-patient    int "FFTW_PATIENT")
-(define-foreign-variable fftw-exhaustive int "FFTW_EXHAUSTIVE")
+(define-foreign-variable c-fftw-estimate int       "FFTW_ESTIMATE")
+(define-foreign-variable c-fftw-measure int        "FFTW_MEASURE")
+(define-foreign-variable c-fftw-patient int        "FFTW_PATIENT")
+(define-foreign-variable c-fftw-exhaustive int     "FFTW_EXHAUSTIVE")
+(define-foreign-variable c-fftw-preserve-input int "FFTW_PRESERVE_INPUT")
 
 (define-foreign-variable fftw-dctI  int "FFTW_REDFT00")
 (define-foreign-variable fftw-dstI  int "FFTW_RODFT00")
@@ -47,7 +48,16 @@
 
 ; real->real
 (define c-fftw-plan-r2r
-  (foreign-lambda plan fftw_plan_r2r int s32vector f64vector f64vector scheme-pointer int))
+  (foreign-lambda plan fftw_plan_r2r int s32vector f64vector f64vector c-pointer int))
+
+; flags
+(define fftw-estimate       c-fftw-estimate)
+(define fftw-measure        c-fftw-measure)
+(define fftw-patient        c-fftw-patient)
+(define fftw-exhaustive     c-fftw-exhaustive)
+(define fftw-preserve-input c-fftw-preserve-input)
+
+(define execute-plan c-fftw-execute)
 
 (define (kind->enum base x)
   (case x
@@ -58,113 +68,105 @@
     (else
       (error "invalid" x))))
 
-(define-syntax wrap-real!-transform
+(define-syntax wrap-real-eo-transform
   (er-macro-transformer
     (lambda (x r c)
-      (let* ((name     (cadr (strip-syntax x)))
-             (cosine?  (caddr x))
-             (execute? (cadddr x)))
-        `(define ,(if execute? (symbol-append name '!) name)
-           (lambda (kind dim in out #!optional flags)
-             (let* ((rank       (length dim))
-                    (total-dim  (foldl fx* 1 dim))
-                    (base       ,(if cosine? 'fftw-dctI 'fftw-dstI))
-                    (kind       (kind->enum base kind)))
-               (unless (fx> total-dim 1)
-                 (error "dim"))
-               (unless (fx>= (f64vector-length out) total-dim)
-                 (error "out-size"))
-               (unless (fx>= (f64vector-length in) total-dim)
-                 (error "in-size"))
-               (let ((plan
-                       (c-fftw-plan-r2r rank (list->s32vector dim) in out
-                                        (s32vector->blob/shared (make-s32vector rank kind))
-                                        (or flags fftw-estimate))))
-                 ,(if execute?
-                      `(begin
-                         (c-fftw-execute plan)
-                         (c-fftw-destroy-plan plan))
-                      `(set-finalizer! plan c-fftw-destroy-plan))))))))))
+      (let* ((name  (cadr (strip-syntax x)))
+             (even? (caddr x)))
+        `(begin
+           (define ,(symbol-append 'plan- name)
+             (lambda (kind in out #!optional dim flags)
+               (let* ((flags      (or flags c-fftw-estimate))
+                      (dim        (or dim (list (f64vector-length in))))
+                      (rank       (length dim))
+                      (total-dim  (foldl fx* 1 dim))
+                      (base       ,(if even? 'fftw-dctI 'fftw-dstI))
+                      (kind       (kind->enum base kind)))
+                 (unless (fx> total-dim 1)
+                   (error "dim"))
+                 (unless (fx>= (f64vector-length out) total-dim)
+                   (error "out-size"))
+                 (unless (fx>= (f64vector-length in) total-dim)
+                   (error "in-size"))
+                 (set-finalizer!
+                   (c-fftw-plan-r2r rank (list->s32vector dim) in out
+                                    #$(make-s32vector rank kind)
+                                    flags)
+                   c-fftw-destroy-plan))))
+           (define ,(symbol-append name '!)
+             (lambda (kind in out #!optional dim)
+               (c-fftw-execute
+                 (,(symbol-append 'plan- name) kind in out dim #f)))))))))
 
-(wrap-real!-transform dct  #t #t)
-(wrap-real!-transform dst  #f #t)
-(wrap-real!-transform dct* #t #f)
-(wrap-real!-transform dst* #f #f)
+(wrap-real-eo-transform dct #t)
+(wrap-real-eo-transform dst #f)
 
 (define-syntax wrap-complex-trasform
   (er-macro-transformer
     (lambda (x r c)
       (let* ((name     (cadr (strip-syntax x)))
-             (forward? (caddr x))
-             (execute? (cadddr x)))
-        `(define ,(if execute? (symbol-append name '!) name)
-           (lambda (dim in out #!optional flags)
-             (let* ((rank       (length dim))
-                    (total-dim  (foldl fx* 1 dim))
-                    (min-length (fx* 2 total-dim)))
-               (unless (fx> total-dim 1)
-                 (error "dim"))
-               (unless (fx>= (f64vector-length out) min-length)
-                 (error "out-size"))
-               (unless (fx>= (f64vector-length in) min-length)
-                 (error "in-size"))
-               (let ((plan
-                       (c-fftw-plan-c2c rank (list->s32vector dim) in out
-                                        ,(if forward? -1 +1)
-                                        (or flags fftw-estimate))))
-                 ,(if execute?
-                      `(begin
-                         (c-fftw-execute plan)
-                         (c-fftw-destroy-plan plan))
-                      `(set-finalizer! plan c-fftw-destroy-plan))))))))))
+             (forward? (caddr x)))
+        `(begin
+           (define ,(symbol-append 'plan- name)
+             (lambda (in out #!optional dim flags)
+               (let* ((flags      (or flags c-fftw-estimate))
+                      (dim        (or dim (list (f64vector-length in))))
+                      (rank       (length dim))
+                      (total-dim  (foldl fx* 1 dim))
+                      (min-length (fx* 2 total-dim)))
+                 (unless (fx> total-dim 1)
+                   (error "dim"))
+                 (unless (fx>= (f64vector-length out) min-length)
+                   (error "out-size"))
+                 (unless (fx>= (f64vector-length in) min-length)
+                   (error "in-size"))
+                 (set-finalizer!
+                   (c-fftw-plan-c2c rank (list->s32vector dim) in out
+                                    ,(if forward? -1 +1) flags)
+                   c-fftw-destroy-plan))))
+           (define ,(symbol-append name '!)
+             (lambda (in out #!optional dim)
+               (c-fftw-execute
+                 (,(symbol-append 'plan- name) in out dim #f)))))))))
 
-(wrap-complex-trasform fft   #t #t)
-(wrap-complex-trasform ifft  #f #t)
-(wrap-complex-trasform fft*  #t #f)
-(wrap-complex-trasform ifft* #f #f)
+(wrap-complex-trasform fft  #t)
+(wrap-complex-trasform ifft #f)
 
 (define-syntax wrap-real-trasform
   (er-macro-transformer
     (lambda (x r c)
       (let* ((name     (cadr (strip-syntax x)))
              (forward? (caddr x))
-             (execute? (cadddr x))
              (re-vec   (if forward? 'in 'out))
              (im-vec   (if forward? 'out 'in)))
-        `(define ,(if execute? (symbol-append name '!) name)
-           (lambda (dim in out #!optional flags)
-             (let* ((rank      (length dim))
-                    (total-dim (foldl fx* 1 dim))
-                    (re-length (f64vector-length ,re-vec))
-                    (im-length (f64vector-length ,im-vec)))
-               (unless (fx> total-dim 1)
-                 (error "dim"))
-               ; The Hermitian symmetry allows us to spare some space by
-               ; only storing half of the spectrum
-               ; (N/2 + 1) * 2 = N + 2
-               (unless (fx>= im-length (fx+ 2 total-dim))
-                 (error "out-size"))
-               ; The dimension refers to the size of the real vector
-               (unless (fx>= re-length total-dim)
-                 (error "in-size"))
-               (let ((plan
-                       ,(if forward?
-                            ; real->complex
-                            `(c-fftw-plan-r2c rank (list->s32vector dim)
-                                              ,re-vec ,im-vec
-                                              (or flags fftw-estimate))
-                            ; complex->real
-                            `(c-fftw-plan-c2r rank (list->s32vector dim)
-                                              ,im-vec ,re-vec
-                                              (or flags fftw-estimate)))))
-                 ,(if execute?
-                      `(begin
-                         (c-fftw-execute plan)
-                         (c-fftw-destroy-plan plan))
-                      `(set-finalizer! plan c-fftw-destroy-plan))))))))))
+        `(begin
+           (define ,(symbol-append 'plan- name)
+             (lambda (in out #!optional dim flags)
+               (let* ((flags     (or flags c-fftw-estimate))
+                      (dim       (or dim (list (f64vector-length in))))
+                      (rank      (length dim))
+                      (total-dim (foldl fx* 1 dim))
+                      (re-length (f64vector-length ,re-vec))
+                      (im-length (f64vector-length ,im-vec)))
+                 (unless (fx> total-dim 1)
+                   (error "dim"))
+                 ; The Hermitian symmetry allows us to spare some space by
+                 ; only storing half of the spectrum
+                 ; (N/2 + 1) * 2 = N + 2
+                 (unless (fx>= im-length (fx+ 2 total-dim))
+                   (error "out-size" im-length (fx+ 2 total-dim)))
+                 ; The dimension refers to the size of the real vector
+                 (unless (fx>= re-length total-dim)
+                   (error "in-size"))
+                 (set-finalizer!
+                   (,(if forward? 'c-fftw-plan-r2c 'c-fftw-plan-c2r)
+                     rank (list->s32vector dim) in out flags)
+                   c-fftw-destroy-plan))))
+           (define ,(symbol-append name '!)
+             (lambda (in out dim)
+               (c-fftw-execute
+                 (,(symbol-append 'plan- name) in out dim #f)))))))))
 
-(wrap-real-trasform rfft   #t #t)
-(wrap-real-trasform irfft  #f #t)
-(wrap-real-trasform rfft*  #t #f)
-(wrap-real-trasform irfft* #f #f)
+(wrap-real-trasform rfft  #t)
+(wrap-real-trasform irfft #f)
 )
