@@ -15,7 +15,7 @@
 
 (functor
   (fftw-impl
-    (I (c-fftw-execute c-fftw-destroy-plan c-fftw-cleanup
+    (I (c-fftw-execute c-fftw-destroy-plan
         c-fftw-plan-c2c c-fftw-plan-r2c c-fftw-plan-c2r c-fftw-plan-r2r)))
   (fft! rfft! ifft! irfft! dct! dst!
    plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
@@ -32,6 +32,18 @@
       ((IV)  (fx+ base 3))
       (else
         (error "invalid transform kind - must be I II III or IV" x))))
+
+  ; exported flags
+
+  (define fftw-estimate c-fftw-estimate)
+  (define fftw-measure c-fftw-measure)
+  (define fftw-patient c-fftw-patient)
+  (define fftw-exhaustive c-fftw-exhaustive)
+  (define fftw-preserve-input c-fftw-preserve-input)
+  (define fftw-unaligned c-fftw-unaligned)
+  (define fftw-conserve-memory c-fftw-conserve-memory)
+
+  ; exported procedures
 
   (define execute-plan c-fftw-execute)
 
@@ -151,8 +163,6 @@
     (foreign-lambda void fftwf_execute plan))
   (define c-fftw-destroy-plan
     (foreign-lambda void fftwf_destroy_plan plan))
-  (define c-fftw-cleanup
-    (foreign-lambda void fftwf_cleanup))
 
   (define c-fftw-plan-c2c
     (foreign-lambda plan fftwf_plan_dft int s32vector c32vector c32vector int int))
@@ -176,8 +186,6 @@
     (foreign-lambda void fftw_execute plan))
   (define c-fftw-destroy-plan
     (foreign-lambda void fftw_destroy_plan plan))
-  (define c-fftw-cleanup
-    (foreign-lambda void fftw_cleanup))
 
   (define c-fftw-plan-c2c
     (foreign-lambda plan fftw_plan_dft int s32vector c64vector c64vector int int))
