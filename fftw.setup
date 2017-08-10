@@ -1,7 +1,7 @@
 (unless (find-header "fftw3.h")
   (error "Could not find the fftw3 library"))
 
-(compile -s -J -O3 -d0 "fftw.scm")
+(compile -s -J -O3 -d0 "fftw.scm" -lfftw3 -lfftw3f)
 (compile -s "_fftw.f32.import.scm")
 (compile -s "_fftw.f64.import.scm")
 (compile -s "fftw.f32.import.scm")
