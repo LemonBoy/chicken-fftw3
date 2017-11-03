@@ -19,7 +19,9 @@
         c-fftw-plan-c2c c-fftw-plan-r2c c-fftw-plan-c2r c-fftw-plan-r2r)))
   (fft! rfft! ifft! irfft! dct! dst!
    plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
-   execute-plan)
+   execute-plan
+   fftw-estimate fftw-measure fftw-patient fftw-exhaustive fftw-preserve-input
+   fftw-unaligned fftw-conserve-memory)
 
   (import chicken scheme foreign I)
   (use srfi-4)
