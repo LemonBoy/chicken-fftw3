@@ -15,7 +15,9 @@
 
 (functor
   (fftw-impl
-    (I (c-fftw-execute c-fftw-destroy-plan
+    (I (c-fftw-destroy-plan
+        c-fftw-execute c-fftw-execute-c2c c-fftw-execute-c2r c-fftw-execute-r2c
+        c-fftw-execute-r2r
         c-fftw-plan-c2c c-fftw-plan-r2c c-fftw-plan-c2r c-fftw-plan-r2r)))
   (fft! rfft! ifft! irfft! dct! dst!
    plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
@@ -76,8 +78,9 @@
                      c-fftw-destroy-plan))))
              (define ,(symbol-append name '!)
                (lambda (kind in out #!optional dim)
-                 (c-fftw-execute
-                   (,(symbol-append 'plan- name) kind in out dim #f)))))))))
+                 (c-fftw-execute-r2r
+                   (,(symbol-append 'plan- name) kind in out dim #f)
+                   in out))))))))
 
   (wrap-real-eo-transform dct #t)
   (wrap-real-eo-transform dst #f)
@@ -107,8 +110,9 @@
                      c-fftw-destroy-plan))))
              (define ,(symbol-append name '!)
                (lambda (in out #!optional dim)
-                 (c-fftw-execute
-                   (,(symbol-append 'plan- name) in out dim #f)))))))))
+                 (c-fftw-execute-c2c
+                   (,(symbol-append 'plan- name) in out dim #f)
+                   in out))))))))
 
   (wrap-complex-trasform fft  #t)
   (wrap-complex-trasform ifft #f)
@@ -145,8 +149,9 @@
                      c-fftw-destroy-plan))))
              (define ,(symbol-append name '!)
                (lambda (in out dim)
-                 (c-fftw-execute
-                   (,(symbol-append 'plan- name) in out dim #f)))))))))
+                 (,(if forward? 'c-fftw-execute-r2c 'c-fftw-execute-c2r)
+                   (,(symbol-append 'plan- name) in out dim #f)
+                   in out))))))))
 
   (wrap-real-trasform rfft  #t)
   (wrap-real-trasform irfft #f)

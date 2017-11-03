@@ -14,6 +14,15 @@
   (define c-fftw-destroy-plan
     (foreign-lambda void fftwf_destroy_plan plan))
 
+  (define c-fftw-execute-c2c
+    (foreign-lambda void fftwf_execute_dft plan c32vector c32vector))
+  (define c-fftw-execute-r2c
+    (foreign-lambda void fftwf_execute_dft_r2c plan f32vector c32vector))
+  (define c-fftw-execute-c2r
+    (foreign-lambda void fftwf_execute_dft_c2r plan c32vector f32vector))
+  (define c-fftw-execute-r2r
+    (foreign-lambda void fftwf_execute_r2r plan f32vector f32vector))
+
   (define c-fftw-plan-c2c
     (foreign-lambda plan fftwf_plan_dft int s32vector c32vector c32vector int int))
   (define c-fftw-plan-r2c
