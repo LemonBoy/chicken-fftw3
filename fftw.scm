@@ -1,15 +1,14 @@
-(foreign-declare "#include <fftw3.h>")
+#>
+#include <fftw3.h>
+<#
 
 (define-foreign-variable c-fftw-estimate int "FFTW_ESTIMATE")
 (define-foreign-variable c-fftw-measure int "FFTW_MEASURE")
 (define-foreign-variable c-fftw-patient int "FFTW_PATIENT")
 (define-foreign-variable c-fftw-exhaustive int "FFTW_EXHAUSTIVE")
+(define-foreign-variable c-fftw-destroy-input int "FFTW_DESTROY_INPUT")
 (define-foreign-variable c-fftw-preserve-input int "FFTW_PRESERVE_INPUT")
 (define-foreign-variable c-fftw-unaligned int "FFTW_UNALIGNED")
-(define-foreign-variable c-fftw-conserve-memory int "FFTW_CONSERVE_MEMORY")
-
-(define-foreign-variable fftw-dctI int "FFTW_REDFT00")
-(define-foreign-variable fftw-dstI int "FFTW_RODFT00")
 
 (functor
   (fftw-impl
@@ -17,23 +16,42 @@
          c-fftw-execute-c2r c-fftw-execute-r2c c-fftw-execute-r2r
          c-fftw-plan-c2c c-fftw-plan-r2c c-fftw-plan-c2r c-fftw-plan-r2r)))
   (plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
-    fftw-estimate fftw-measure fftw-patient fftw-exhaustive fftw-preserve-input
-    fftw-unaligned fftw-conserve-memory)
+    fftw-estimate fftw-measure fftw-patient fftw-exhaustive)
 
   (import chicken scheme foreign I)
   (use srfi-4)
 
-  (define (kind->enum base x)
-    (case x
-      ((I)   base)
-      ((II)  (fx+ base 1))
-      ((III) (fx+ base 2))
-      ((IV)  (fx+ base 3))
-      (else
-        (error "invalid transform kind - must be I II III or IV" x))))
+  (define-foreign-variable FFTW_REDFT00 int "FFTW_REDFT00")
+  (define-foreign-variable FFTW_REDFT10 int "FFTW_REDFT10")
+  (define-foreign-variable FFTW_REDFT01 int "FFTW_REDFT01")
+  (define-foreign-variable FFTW_REDFT11 int "FFTW_REDFT11")
+  (define-foreign-variable FFTW_RODFT00 int "FFTW_RODFT00")
+  (define-foreign-variable FFTW_RODFT10 int "FFTW_RODFT10")
+  (define-foreign-variable FFTW_RODFT01 int "FFTW_RODFT01")
+  (define-foreign-variable FFTW_RODFT11 int "FFTW_RODFT11")
+
+  (define +even-flags+
+    (list FFTW_REDFT00 FFTW_REDFT10 FFTW_REDFT01 FFTW_REDFT11))
+  (define +odd-flags+
+    (list FFTW_RODFT00 FFTW_RODFT10 FFTW_RODFT01 FFTW_RODFT11))
+
+  (define (kind->enum even? x loc)
+    (##sys#check-range x 1 4 loc)
+    (list-ref (if even? +even-flags+ +odd-flags+) (fx- x 1)))
 
   (define (vector-alignment v)
     (c-fftw-alignment-of (##sys#slot v 1)))
+
+  (define (flags->bitmap args)
+    (let ((strategy (or (get-keyword strategy: args) c-fftw-estimate)))
+      (##sys#check-exact strategy strategy:)
+      (apply bitwise-ior
+        (cons strategy
+          (map (lambda (k+v)
+                 (if (get-keyword (car k+v) args) (cdr k+v) 0))
+               `((unaligned?:      . ,c-fftw-unaligned)
+                 (preserve-input?: . ,c-fftw-preserve-input)
+                 (destroy-input?:  . ,c-fftw-destroy-input)))))))
 
   ; exported flags
 
@@ -41,9 +59,6 @@
   (define fftw-measure c-fftw-measure)
   (define fftw-patient c-fftw-patient)
   (define fftw-exhaustive c-fftw-exhaustive)
-  (define fftw-preserve-input c-fftw-preserve-input)
-  (define fftw-unaligned c-fftw-unaligned)
-  (define fftw-conserve-memory c-fftw-conserve-memory)
 
   ; exported procedures
 
@@ -51,11 +66,11 @@
     (er-macro-transformer
       (lambda (x r c)
         (let* ((name (strip-syntax (cadr x)))
-               (enum-base (strip-syntax (caddr x)))
+               (even? (strip-syntax (caddr x)))
                (proc-name (symbol-append 'plan- name)))
-          `(define (,proc-name kind in out #!optional dim flags)
+          `(define (,proc-name kind in out #!optional dim . flags)
              (let ((dim (or dim (list (fvector-length in))))
-                   (flags (or flags c-fftw-estimate))
+                   (flags (flags->bitmap flags))
                    (total-dim (foldl fx* 1 dim)))
                ; make sure the parameters are correct
                (cond
@@ -70,7 +85,7 @@
                      (rank (length dim))
                      (align-in  (vector-alignment in))
                      (align-out (vector-alignment out))
-                     (enum (kind->enum ,enum-base kind))
+                     (enum (kind->enum ,even? kind ',proc-name))
                      (plan #f))
                  ; create the plan
                  (set! plan
@@ -92,8 +107,8 @@
                         (error "alignment mismatch")))
                    (c-fftw-execute-r2r plan in out)))))))))
 
-  (wrap-real-eo-transform dct fftw-dctI)
-  (wrap-real-eo-transform dst fftw-dstI)
+  (wrap-real-eo-transform dct #t)
+  (wrap-real-eo-transform dst #f)
 
   (define-syntax wrap-complex-trasform
     (er-macro-transformer
@@ -102,9 +117,9 @@
                (forward? (strip-syntax (caddr x)))
                (expt (if forward? -1 +1))
                (proc-name (symbol-append 'plan- name)))
-          `(define (,proc-name kind in out #!optional dim flags)
+          `(define (,proc-name kind in out #!optional dim . flags)
              (let ((dim (or dim (list (fvector-length in))))
-                   (flags (or flags c-fftw-estimate))
+                   (flags (flags->bitmap flags))
                    (total-dim (foldl fx* 1 dim)))
                ; make sure the parameters are correct
                (cond
@@ -156,9 +171,9 @@
                (plan-name (if forward?
                               'c-fftw-plan-r2c
                               'c-fftw-plan-c2r)))
-          `(define (,proc-name kind in out #!optional dim flags)
+          `(define (,proc-name kind in out #!optional dim . flags)
              (let ((dim (or dim (list (fvector-length in))))
-                   (flags (or flags c-fftw-estimate))
+                   (flags (flags->bitmap flags))
                    (total-dim (foldl fx* 1 dim)))
                ; make sure the parameters are correct
                (cond
