@@ -1,8 +1,11 @@
-(include "fftw.scm")
+(module fftw-f64
+  (plan-fft plan-rfft plan-ifft plan-irfft plan-dct plan-dst
+    fftw-estimate fftw-measure fftw-patient fftw-exhaustive)
 
-(module fftw-f64 = fftw-impl
   (import scheme chicken foreign)
   (use srfi-4)
+
+  (include "fftw.scm")
 
   (define fvector-length f64vector-length)
 
